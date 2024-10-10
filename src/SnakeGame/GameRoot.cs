@@ -1,7 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using Microsoft.Xna.Framework.Input;
 using SnakeGame.Scenes;
 using SnakeGame.Services;
 
@@ -9,14 +8,6 @@ namespace SnakeGame;
 public class GameRoot : Game
 {
     private readonly IServiceProvider _services;
-    private KeyboardManager? _keyboardManager;
-    private SceneManager? _sceneManager;
-    private SpriteBatch? _spriteBatch;
-
-    private KeyboardManager KeyboardManager => _keyboardManager ??= _services.GetRequiredService<KeyboardManager>();
-    private SceneManager SceneManager => _sceneManager ??= _services.GetRequiredService<SceneManager>();
-    private SpriteBatch SpriteBatch => _spriteBatch ??= _services.GetRequiredService<SpriteBatch>();
-
 
     public GameRoot()
     {
@@ -25,6 +16,7 @@ public class GameRoot : Game
         IsMouseVisible = true;
 
         _services = new ServiceCollection()
+            .AddSingleton(this)
             .AddSingleton<IGraphicsDeviceService>(graphicsDeviceManager)
             .AddSingleton(provider => provider.GetRequiredService<IGraphicsDeviceService>().GraphicsDevice)
             .AddSingleton(provider => new SpriteBatch(provider.GetRequiredService<GraphicsDevice>()))
@@ -37,34 +29,8 @@ public class GameRoot : Game
 
     protected override void Initialize()
     {
-        SceneManager.Push<GameScene>();
+        Components.Add(_services.GetRequiredService<SceneManager>());
 
         base.Initialize();
-    }
-
-    protected override void LoadContent()
-    {
-        base.LoadContent();
-    }
-
-    protected override void Update(GameTime gameTime)
-    {
-        if (SceneManager.Count == 1 && KeyboardManager.IsKeyPressed(Keys.Escape))
-            Exit();
-
-        SceneManager.CurrentScene.Update(gameTime);
-
-        base.Update(gameTime);
-    }
-
-    protected override void Draw(GameTime gameTime)
-    {
-        GraphicsDevice.Clear(Color.CornflowerBlue);
-
-        SpriteBatch.Begin();
-        SceneManager.CurrentScene.Draw(SpriteBatch);
-        SpriteBatch.End();
-
-        base.Draw(gameTime);
     }
 }
