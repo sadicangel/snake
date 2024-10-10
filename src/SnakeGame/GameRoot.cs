@@ -14,6 +14,7 @@ public class GameRoot : Game
         var graphicsDeviceManager = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
+        Window.Title = "Snake";
 
         _services = new ServiceCollection()
             .AddSingleton(this)
