@@ -1,2 +1,2 @@
 # snake
-Classic snake game - in monogame.
+Classic snake game - in [MonoGame](https://monogame.net/).
