@@ -12,6 +12,8 @@ public enum Direction
 
 public static class DirectionExtensions
 {
+    public static bool IsPositive(this Direction direction) => direction is Direction.Right or Direction.Down;
+
     public static Point ToPoint(this Direction direction) => direction switch
     {
         Direction.Right => new Point(1, 0),
@@ -21,7 +23,7 @@ public static class DirectionExtensions
         _ => throw new UnreachableException($"Unexpected {nameof(Direction)} '{direction}'"),
     };
 
-    public static Point Move(this Point point, Direction direction) => point + direction.ToPoint();
+    public static Point GetNextPosition(this Point point, Direction direction) => point + direction.ToPoint();
 
     public static bool IsDirectionPressed(this KeyboardManager keyboardManager, Direction direction) => direction switch
     {

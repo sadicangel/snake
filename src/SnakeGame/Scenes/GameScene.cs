@@ -17,22 +17,34 @@ public sealed class GameScene(
     KeyboardManager keyboardManager)
     : IScene, IDisposable
 {
-    private static readonly TimeSpan s_updateInterval = TimeSpan.FromSeconds(0.125);
-    private static readonly int s_rows = 24;
-    private static readonly int s_cols = 40;
+    private static readonly int s_rows = 20;
+    private static readonly int s_cols = 36;
     private static readonly Vector2 s_tileSize = new(20);
+    private static readonly Vector2 s_drawOffset = new(2);
+    private static readonly Point s_outOfBounds = ((s_drawOffset + new Vector2(1)) * -1).ToPoint();
+    private static readonly int s_bugCountdown = 5;
+    private static readonly TimeSpan s_initialUpdateInternal = TimeSpan.FromSeconds(0.125);
+    private static readonly int s_speedCountdown = 9;
+    private static readonly TimeSpan s_bugShowDuration = TimeSpan.FromSeconds(10);
 
-    // TODO: Provide this in a TextureManager?
-    private readonly Texture2D _texture = CreateTexture1px(graphicsDevice);
-    private readonly Snake _snake = new(new Point(s_cols / 2, s_rows / 2));
+    // TODO: Provide this in a TextureManager? 
+    private readonly Snake _snake = new(new Point(s_cols / 2, s_rows / 2), new Point(s_cols / 2 - 1, s_rows / 2));
+
+    private readonly Texture2D _texture1px = CreateTexture1px(graphicsDevice);
+    private readonly Texture2D _snakeSprite = contentManager.Load<Texture2D>("sprites/snake");
     private readonly SpriteFont _font = contentManager.Load<SpriteFont>("fonts/Arcade");
 
-    private Point _food = new(-1);
+    private GameSceneState _gameSceneState = GameSceneState.Created;
     private Direction _direction = Direction.Right;
 
-    private GameSceneState _gameSceneState = GameSceneState.Created;
+    private Point _food = s_outOfBounds;
+    private Point _bug = s_outOfBounds;
+    private int _bugIndex = 0;
+    private Duration _bugShowDuration = new Duration(s_bugShowDuration);
+    private int _nextBugCountdown = s_bugCountdown;
 
-    private TimeSpan _updateCooldown = s_updateInterval;
+    private Duration _updateCooldown = new Duration(s_initialUpdateInternal);
+    private int _nextSpeedUpCountdown = s_speedCountdown;
 
     private static Texture2D CreateTexture1px(GraphicsDevice graphicsDevice)
     {
@@ -41,13 +53,13 @@ public sealed class GameScene(
         return texture;
     }
 
-    public void Dispose() => _texture.Dispose();
+    public void Dispose() => _texture1px.Dispose();
 
     public void Update(GameTime gameTime)
     {
         keyboardManager.Update();
-        _updateCooldown -= gameTime.ElapsedGameTime;
-        if (_updateCooldown <= TimeSpan.Zero)
+        _updateCooldown.Update(gameTime);
+        if (_updateCooldown.IsExpired)
         {
             switch (_gameSceneState)
             {
@@ -65,7 +77,7 @@ public sealed class GameScene(
                                 _direction = Direction.Up;
                             else
                                 throw new UnreachableException($"Unexpected starting {nameof(Direction)}");
-                            _food = NextFoodPoint(_snake.Body, s_rows, s_cols);
+                            _food = NextEmptyPoint(_snake.Body, _bug, s_rows, s_cols);
                             _gameSceneState = GameSceneState.Playing;
                         }
                     }
@@ -78,13 +90,29 @@ public sealed class GameScene(
                 case GameSceneState.Playing:
                     {
                         _direction = GetNextDirection();
-                        var head = Wrap(_snake.Head.Move(_direction));
+                        var head = Wrap(_snake.Head.Point.GetNextPosition(_direction));
                         if (head == _food)
                         {
                             _snake.Eat(head);
-                            _food = NextFoodPoint(_snake.Body, s_rows, s_cols);
+                            _food = NextEmptyPoint(_snake.Body, _bug, s_rows, s_cols);
+                            if (_nextBugCountdown > 0)
+                            {
+                                --_nextBugCountdown;
+                                if (_nextBugCountdown == 0)
+                                {
+                                    _bug = NextEmptyPoint(_snake.Body, _food, s_rows, s_cols);
+                                    _bugIndex = Random.Shared.Next(5);
+                                    _bugShowDuration.Reset();
+                                }
+                            }
                         }
-                        else if (_snake.Body.Contains(head))
+                        else if (head == _bug)
+                        {
+                            _snake.Eat(head);
+                            _bug = s_outOfBounds;
+                            _nextBugCountdown = s_bugCountdown;
+                        }
+                        else if (head != _snake.Tail.Point && _snake.Body.Any(bp => head == bp.Point))
                         {
                             _gameSceneState = GameSceneState.GameOver;
                         }
@@ -105,15 +133,22 @@ public sealed class GameScene(
                 default:
                     throw new UnreachableException($"Unexpected {nameof(GameSceneState)} '{_gameSceneState}'");
             }
-            _updateCooldown = s_updateInterval;
+            _updateCooldown.Reset();
+        }
+
+        _bugShowDuration.Update(gameTime);
+        if (_bugShowDuration.IsExpired && _nextBugCountdown == 0)
+        {
+            _bug = s_outOfBounds;
+            _nextBugCountdown = s_bugCountdown;
         }
 
         static Point Wrap(Point p) => new((p.X % s_cols + s_cols) % s_cols, (p.Y % s_rows + s_rows) % s_rows);
     }
 
-    private static Point NextFoodPoint(IReadOnlyList<Point> snakeBody, int rows, int cols)
+    private static Point NextEmptyPoint(IReadOnlyList<BodyPart> snakeBody, Point foodOrBug, int rows, int cols)
     {
-        var size = rows * cols - snakeBody.Count;
+        var size = rows * cols - snakeBody.Count - (foodOrBug.X > 0 ? 1 : 0);
         var buffer = ArrayPool<Point>.Shared.Rent(size);
         var choices = buffer.AsSpan(0, size);
         var i = 0;
@@ -122,7 +157,7 @@ public sealed class GameScene(
             for (var x = 0; x < cols; ++x)
             {
                 var p = new Point(x, y);
-                if (!snakeBody.Contains(p))
+                if (p != foodOrBug && snakeBody.All(bp => p != bp.Point))
                 {
                     choices[i++] = p;
                 }
@@ -165,10 +200,51 @@ public sealed class GameScene(
 
     public void Draw(SpriteBatch spriteBatch)
     {
+        DrawBorder(spriteBatch);
         DrawGrid(spriteBatch);
         DrawFood(spriteBatch);
+        DrawBug(spriteBatch);
         DrawSnake(spriteBatch);
         DrawText(spriteBatch);
+    }
+
+    private void DrawBorder(SpriteBatch spriteBatch)
+    {
+        // Vertical
+        for (var y = -1; y <= s_rows; ++y)
+        {
+            spriteBatch.Draw(
+                _texture1px,
+                new Rectangle(
+                    location: ((new Vector2(s_drawOffset.X - 1, y + s_drawOffset.Y)) * s_tileSize).ToPoint(),
+                    size: s_tileSize.ToPoint()),
+                Color.Black);
+
+            spriteBatch.Draw(
+                _texture1px,
+                new Rectangle(
+                    location: ((new Vector2(s_cols, y) + s_drawOffset) * s_tileSize).ToPoint(),
+                    size: s_tileSize.ToPoint()),
+                Color.Black);
+        }
+
+        // Horizontal
+        for (var x = 0; x < s_cols; ++x)
+        {
+            spriteBatch.Draw(
+                _texture1px,
+                new Rectangle(
+                    location: ((new Vector2(x + s_drawOffset.X, s_drawOffset.Y - 1)) * s_tileSize).ToPoint(),
+                    size: s_tileSize.ToPoint()),
+                Color.Black);
+
+            spriteBatch.Draw(
+                _texture1px,
+                new Rectangle(
+                    location: ((new Vector2(x, s_rows) + s_drawOffset) * s_tileSize).ToPoint(),
+                    size: s_tileSize.ToPoint()),
+                Color.Black);
+        }
     }
 
     private void DrawGrid(SpriteBatch spriteBatch)
@@ -178,9 +254,9 @@ public sealed class GameScene(
             for (var x = 0; x < s_cols; ++x)
             {
                 spriteBatch.Draw(
-                    _texture,
+                    _texture1px,
                     new Rectangle(
-                        location: (new Vector2(x, y) * s_tileSize).ToPoint(),
+                        location: ((new Vector2(x, y) + s_drawOffset) * s_tileSize).ToPoint(),
                         size: s_tileSize.ToPoint()),
                     ((x + y) % 2 == 0) ? Color.White : Color.Wheat);
             }
@@ -192,10 +268,11 @@ public sealed class GameScene(
         foreach (var part in _snake.Body)
         {
             spriteBatch.Draw(
-                _texture,
+                _snakeSprite,
                 new Rectangle(
-                    location: (part.ToVector2() * s_tileSize).ToPoint(),
+                    location: ((part.Vector2 + s_drawOffset) * s_tileSize).ToPoint(),
                     size: s_tileSize.ToPoint()),
+                part.SrcRect,
                 Color.Black);
         }
     }
@@ -203,11 +280,27 @@ public sealed class GameScene(
     private void DrawFood(SpriteBatch spriteBatch)
     {
         spriteBatch.Draw(
-            _texture,
+            _snakeSprite,
             new Rectangle(
-                location: (_food.ToVector2() * s_tileSize).ToPoint(),
+                location: ((_food.ToVector2() + s_drawOffset) * s_tileSize).ToPoint(),
                 size: s_tileSize.ToPoint()),
+            new Rectangle(
+                location: new Point(100, 0),
+                size: new Point(20)),
             Color.Green);
+    }
+
+    private void DrawBug(SpriteBatch spriteBatch)
+    {
+        spriteBatch.Draw(
+            _snakeSprite,
+            new Rectangle(
+                location: ((_bug.ToVector2() + s_drawOffset) * s_tileSize).ToPoint(),
+                size: s_tileSize.ToPoint()),
+            new Rectangle(
+                location: new Point(80, _bugIndex * 20),
+                size: new Point(20)),
+            Color.Red);
     }
 
     private void DrawText(SpriteBatch spriteBatch)
@@ -229,4 +322,15 @@ public sealed class GameScene(
             spriteBatch.DrawString(_font, text, pausePosition, Color.DarkBlue);
         }
     }
+}
+
+public record struct Duration(TimeSpan DurationTime)
+{
+    public TimeSpan RemainingTime { get; private set; } = DurationTime;
+
+    public readonly bool IsExpired => RemainingTime <= TimeSpan.Zero;
+
+    public void Update(GameTime gameTime) => RemainingTime -= gameTime.ElapsedGameTime;
+
+    public void Reset() => RemainingTime = DurationTime;
 }
