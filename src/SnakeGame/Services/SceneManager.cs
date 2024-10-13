@@ -54,7 +54,7 @@ public sealed class SceneManager(
 
     public void Draw(GameTime gameTime)
     {
-        graphicsDevice.Clear(Color.CornflowerBlue);
+        graphicsDevice.Clear(Color.DarkSeaGreen);
 
         spriteBatch.Begin();
         CurrentScene.Draw(spriteBatch);

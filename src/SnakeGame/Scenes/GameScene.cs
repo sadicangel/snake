@@ -25,9 +25,10 @@ public sealed class GameScene(
     private static readonly int s_bugCountdown = 5;
     private static readonly TimeSpan s_initialUpdateInternal = TimeSpan.FromSeconds(0.125);
     private static readonly int s_speedCountdown = 9;
-    private static readonly TimeSpan s_bugShowDuration = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan s_bugShowDuration = TimeSpan.FromSeconds(7);
 
-    // TODO: Provide this in a TextureManager? 
+    private int _score = 0;
+
     private readonly Snake _snake = new(new Point(s_cols / 2, s_rows / 2), new Point(s_cols / 2 - 1, s_rows / 2));
 
     private readonly Texture2D _texture1px = CreateTexture1px(graphicsDevice);
@@ -58,42 +59,43 @@ public sealed class GameScene(
     public void Update(GameTime gameTime)
     {
         keyboardManager.Update();
-        _updateCooldown.Update(gameTime);
-        if (_updateCooldown.IsExpired)
+        switch (_gameSceneState)
         {
-            switch (_gameSceneState)
-            {
-                case GameSceneState.Created:
+            case GameSceneState.Created:
+                {
+                    if (keyboardManager.IsAnyKeyDown(Keys.Right, Keys.D, Keys.Down, Keys.S, Keys.Left, Keys.A, Keys.Up, Keys.W))
                     {
-                        if (keyboardManager.IsAnyKeyDown(Keys.Right, Keys.D, Keys.Down, Keys.S, Keys.Left, Keys.A, Keys.Up, Keys.W))
-                        {
-                            if (keyboardManager.IsDirectionPressed(Direction.Right))
-                                _direction = Direction.Right;
-                            else if (keyboardManager.IsDirectionPressed(Direction.Down))
-                                _direction = Direction.Down;
-                            else if (keyboardManager.IsDirectionPressed(Direction.Left))
-                                _direction = Direction.Left;
-                            else if (keyboardManager.IsDirectionPressed(Direction.Up))
-                                _direction = Direction.Up;
-                            else
-                                throw new UnreachableException($"Unexpected starting {nameof(Direction)}");
-                            _food = NextEmptyPoint(_snake.Body, _bug, s_rows, s_cols);
-                            _gameSceneState = GameSceneState.Playing;
-                        }
+                        if (keyboardManager.IsDirectionPressed(Direction.Right))
+                            _direction = Direction.Right;
+                        else if (keyboardManager.IsDirectionPressed(Direction.Down))
+                            _direction = Direction.Down;
+                        else if (keyboardManager.IsDirectionPressed(Direction.Left))
+                            _direction = Direction.Left;
+                        else if (keyboardManager.IsDirectionPressed(Direction.Up))
+                            _direction = Direction.Up;
+                        else
+                            throw new UnreachableException($"Unexpected starting {nameof(Direction)}");
+                        _food = NextEmptyPoint(_snake.Body, _bug, s_rows, s_cols);
+                        _gameSceneState = GameSceneState.Playing;
                     }
-                    break;
-                case GameSceneState.Playing when keyboardManager.IsAnyKeyDown(Keys.Space, Keys.P):
-                    {
-                        _gameSceneState = GameSceneState.Paused;
-                    }
-                    break;
-                case GameSceneState.Playing:
+                }
+                break;
+            case GameSceneState.Playing when keyboardManager.IsAnyKeyPressed(Keys.Space, Keys.P):
+                {
+                    _gameSceneState = GameSceneState.Paused;
+                }
+                break;
+            case GameSceneState.Playing:
+                {
+                    _updateCooldown.Update(gameTime);
+                    if (_updateCooldown.IsExpired)
                     {
                         _direction = GetNextDirection();
                         var head = Wrap(_snake.Head.Point.GetNextPosition(_direction));
                         if (head == _food)
                         {
                             _snake.Eat(head);
+                            _score += 9;
                             _food = NextEmptyPoint(_snake.Body, _bug, s_rows, s_cols);
                             if (_nextBugCountdown > 0)
                             {
@@ -110,6 +112,7 @@ public sealed class GameScene(
                         {
                             _snake.Eat(head);
                             _bug = s_outOfBounds;
+                            _score += (int)Math.Round(_bugShowDuration.RemainingTime.TotalSeconds, MidpointRounding.AwayFromZero) * 10;
                             _nextBugCountdown = s_bugCountdown;
                         }
                         else if (head != _snake.Tail.Point && _snake.Body.Any(bp => head == bp.Point))
@@ -120,27 +123,27 @@ public sealed class GameScene(
                         {
                             _snake.Move(head);
                         }
+                        _updateCooldown.Reset();
                     }
-                    break;
-                case GameSceneState.Paused:
-                    {
-                        if (keyboardManager.IsAnyKeyDown(Keys.Space, Keys.P))
-                            _gameSceneState = GameSceneState.Playing;
-                    }
-                    break;
-                case GameSceneState.GameOver:
-                    break;
-                default:
-                    throw new UnreachableException($"Unexpected {nameof(GameSceneState)} '{_gameSceneState}'");
-            }
-            _updateCooldown.Reset();
-        }
 
-        _bugShowDuration.Update(gameTime);
-        if (_bugShowDuration.IsExpired && _nextBugCountdown == 0)
-        {
-            _bug = s_outOfBounds;
-            _nextBugCountdown = s_bugCountdown;
+                    _bugShowDuration.Update(gameTime);
+                    if (_bugShowDuration.IsExpired && _nextBugCountdown == 0)
+                    {
+                        _bug = s_outOfBounds;
+                        _nextBugCountdown = s_bugCountdown;
+                    }
+                }
+                break;
+            case GameSceneState.Paused:
+                {
+                    if (keyboardManager.IsAnyKeyPressed(Keys.Space, Keys.P))
+                        _gameSceneState = GameSceneState.Playing;
+                }
+                break;
+            case GameSceneState.GameOver:
+                break;
+            default:
+                throw new UnreachableException($"Unexpected {nameof(GameSceneState)} '{_gameSceneState}'");
         }
 
         static Point Wrap(Point p) => new((p.X % s_cols + s_cols) % s_cols, (p.Y % s_rows + s_rows) % s_rows);
@@ -201,10 +204,12 @@ public sealed class GameScene(
     public void Draw(SpriteBatch spriteBatch)
     {
         DrawBorder(spriteBatch);
-        DrawGrid(spriteBatch);
+        //DrawGrid(spriteBatch);
         DrawFood(spriteBatch);
         DrawBug(spriteBatch);
+        DrawBugTime(spriteBatch);
         DrawSnake(spriteBatch);
+        DrawScore(spriteBatch);
         DrawText(spriteBatch);
     }
 
@@ -287,7 +292,7 @@ public sealed class GameScene(
             new Rectangle(
                 location: new Point(100, 0),
                 size: new Point(20)),
-            Color.Green);
+            Color.DarkGreen);
     }
 
     private void DrawBug(SpriteBatch spriteBatch)
@@ -300,7 +305,39 @@ public sealed class GameScene(
             new Rectangle(
                 location: new Point(80, _bugIndex * 20),
                 size: new Point(20)),
-            Color.Red);
+            Color.DarkRed);
+    }
+
+    private void DrawScore(SpriteBatch spriteBatch)
+    {
+        spriteBatch.DrawString(
+            _font,
+            $"Score: {_score}",
+            new Vector2(s_drawOffset.X - 1, s_drawOffset.Y - 2) * s_tileSize, Color.Black);
+    }
+
+    private void DrawBugTime(SpriteBatch spriteBatch)
+    {
+        if (_nextBugCountdown == 0)
+        {
+            var time = $"{_bugShowDuration.RemainingTime.TotalSeconds:F1}s";
+            var size = _font.MeasureString(time);
+            spriteBatch.DrawString(
+                _font,
+                time,
+                new Vector2(s_cols + s_drawOffset.X, s_drawOffset.Y - 2) * s_tileSize - new Vector2(size.X, 0),
+                Color.Black);
+
+            spriteBatch.Draw(
+            _snakeSprite,
+            new Rectangle(
+                location: (new Vector2(s_cols + s_drawOffset.X, s_drawOffset.Y - 2) * s_tileSize).ToPoint(),
+                size: s_tileSize.ToPoint()),
+            new Rectangle(
+                location: new Point(80, _bugIndex * 20),
+                size: new Point(20)),
+            Color.Black);
+        }
     }
 
     private void DrawText(SpriteBatch spriteBatch)
