@@ -4,6 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageVersion Include="MonoGame.Extended" Version="4.0.3" />
     <PackageVersion Include="MonoGame.Framework.DesktopGL" Version="3.8.2.1105" />
     <PackageVersion Include="MonoGame.Content.Builder.Task" Version="3.8.2.1105" />
     <PackageVersion Include="Nito.Collections.Deque" Version="1.2.1" />

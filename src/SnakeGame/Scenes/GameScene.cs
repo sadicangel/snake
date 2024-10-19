@@ -12,9 +12,10 @@ namespace SnakeGame.Scenes;
 public enum GameSceneState { Created, Playing, Paused, GameOver }
 
 public sealed class GameScene(
+    GameOptions gameOptions,
     GraphicsDevice graphicsDevice,
     ContentManager contentManager,
-    KeyboardManager keyboardManager)
+    InputManager inputManager)
     : IScene, IDisposable
 {
     private static readonly int s_rows = 20;
@@ -23,9 +24,6 @@ public sealed class GameScene(
     private static readonly Vector2 s_drawOffset = new(2);
     private static readonly Point s_outOfBounds = ((s_drawOffset + new Vector2(1)) * -1).ToPoint();
     private static readonly int s_bugCountdown = 5;
-    private static readonly TimeSpan s_initialUpdateInternal = TimeSpan.FromSeconds(0.125);
-    private static readonly int s_speedCountdown = 9;
-    private static readonly TimeSpan s_bugShowDuration = TimeSpan.FromSeconds(7);
 
     private int _score = 0;
 
@@ -35,17 +33,18 @@ public sealed class GameScene(
     private readonly Texture2D _snakeSprite = contentManager.Load<Texture2D>("sprites/snake");
     private readonly SpriteFont _font = contentManager.Load<SpriteFont>("fonts/Arcade");
 
+    private readonly int _scorePerFood = gameOptions.Difficulty;
+
     private GameSceneState _gameSceneState = GameSceneState.Created;
     private Direction _direction = Direction.Right;
 
     private Point _food = s_outOfBounds;
     private Point _bug = s_outOfBounds;
     private int _bugIndex = 0;
-    private Duration _bugShowDuration = new Duration(s_bugShowDuration);
     private int _nextBugCountdown = s_bugCountdown;
 
-    private Duration _updateCooldown = new Duration(s_initialUpdateInternal);
-    private int _nextSpeedUpCountdown = s_speedCountdown;
+    private Duration _updateDuration = gameOptions.UpdateDuration;
+    private Duration _bugShowDuration = gameOptions.BugShowDuration;
 
     private static Texture2D CreateTexture1px(GraphicsDevice graphicsDevice)
     {
@@ -58,44 +57,40 @@ public sealed class GameScene(
 
     public void Update(GameTime gameTime)
     {
-        keyboardManager.Update();
         switch (_gameSceneState)
         {
             case GameSceneState.Created:
                 {
-                    if (keyboardManager.IsAnyKeyDown(Keys.Right, Keys.D, Keys.Down, Keys.S, Keys.Left, Keys.A, Keys.Up, Keys.W))
-                    {
-                        if (keyboardManager.IsDirectionPressed(Direction.Right))
-                            _direction = Direction.Right;
-                        else if (keyboardManager.IsDirectionPressed(Direction.Down))
-                            _direction = Direction.Down;
-                        else if (keyboardManager.IsDirectionPressed(Direction.Left))
-                            _direction = Direction.Left;
-                        else if (keyboardManager.IsDirectionPressed(Direction.Up))
-                            _direction = Direction.Up;
-                        else
-                            throw new UnreachableException($"Unexpected starting {nameof(Direction)}");
-                        _food = NextEmptyPoint(_snake.Body, _bug, s_rows, s_cols);
-                        _gameSceneState = GameSceneState.Playing;
-                    }
+                    if (inputManager.Keyboard.IsDirectionDown(Direction.Right))
+                        _direction = Direction.Right;
+                    else if (inputManager.Keyboard.IsDirectionDown(Direction.Down))
+                        _direction = Direction.Down;
+                    else if (inputManager.Keyboard.IsDirectionDown(Direction.Left))
+                        _direction = Direction.Left;
+                    else if (inputManager.Keyboard.IsDirectionDown(Direction.Up))
+                        _direction = Direction.Up;
+                    else
+                        break;
+                    _food = NextEmptyPoint(_snake.Body, _bug, s_rows, s_cols);
+                    _gameSceneState = GameSceneState.Playing;
                 }
                 break;
-            case GameSceneState.Playing when keyboardManager.IsAnyKeyPressed(Keys.Space, Keys.P):
+            case GameSceneState.Playing when inputManager.Keyboard.WasKeyPressed(Keys.Space) || inputManager.Keyboard.WasKeyPressed(Keys.P):
                 {
                     _gameSceneState = GameSceneState.Paused;
                 }
                 break;
             case GameSceneState.Playing:
                 {
-                    _updateCooldown.Update(gameTime);
-                    if (_updateCooldown.IsExpired)
+                    _updateDuration.Update(gameTime);
+                    if (_updateDuration.IsExpired)
                     {
                         _direction = GetNextDirection();
                         var head = Wrap(_snake.Head.Point.GetNextPosition(_direction));
                         if (head == _food)
                         {
                             _snake.Eat(head);
-                            _score += 9;
+                            _score += _scorePerFood;
                             _food = NextEmptyPoint(_snake.Body, _bug, s_rows, s_cols);
                             if (_nextBugCountdown > 0)
                             {
@@ -112,18 +107,19 @@ public sealed class GameScene(
                         {
                             _snake.Eat(head);
                             _bug = s_outOfBounds;
-                            _score += (int)Math.Round(_bugShowDuration.RemainingTime.TotalSeconds, MidpointRounding.AwayFromZero) * 10;
+                            _score += (int)Math.Round(_bugShowDuration.RemainingTime.TotalSeconds, MidpointRounding.AwayFromZero) * _scorePerFood;
                             _nextBugCountdown = s_bugCountdown;
                         }
                         else if (head != _snake.Tail.Point && _snake.Body.Any(bp => head == bp.Point))
                         {
                             _gameSceneState = GameSceneState.GameOver;
+                            gameOptions.HighScore = int.Max(gameOptions.HighScore, _score);
                         }
                         else
                         {
                             _snake.Move(head);
                         }
-                        _updateCooldown.Reset();
+                        _updateDuration.Reset();
                     }
 
                     _bugShowDuration.Update(gameTime);
@@ -136,7 +132,7 @@ public sealed class GameScene(
                 break;
             case GameSceneState.Paused:
                 {
-                    if (keyboardManager.IsAnyKeyPressed(Keys.Space, Keys.P))
+                    if (inputManager.Keyboard.WasKeyPressed(Keys.Space) || inputManager.Keyboard.WasKeyPressed(Keys.P))
                         _gameSceneState = GameSceneState.Playing;
                 }
                 break;
@@ -183,16 +179,16 @@ public sealed class GameScene(
         switch (_direction)
         {
             case Direction.Right or Direction.Left:
-                if (keyboardManager.IsDirectionPressed(Direction.Down))
+                if (inputManager.Keyboard.IsDirectionDown(Direction.Down))
                     return Direction.Down;
-                if (keyboardManager.IsDirectionPressed(Direction.Up))
+                if (inputManager.Keyboard.IsDirectionDown(Direction.Up))
                     return Direction.Up;
                 return _direction;
 
             case Direction.Down or Direction.Up:
-                if (keyboardManager.IsDirectionPressed(Direction.Right))
+                if (inputManager.Keyboard.IsDirectionDown(Direction.Right))
                     return Direction.Right;
-                if (keyboardManager.IsDirectionPressed(Direction.Left))
+                if (inputManager.Keyboard.IsDirectionDown(Direction.Left))
                     return Direction.Left;
                 return _direction;
 
@@ -359,15 +355,4 @@ public sealed class GameScene(
             spriteBatch.DrawString(_font, text, pausePosition, Color.DarkBlue);
         }
     }
-}
-
-public record struct Duration(TimeSpan DurationTime)
-{
-    public TimeSpan RemainingTime { get; private set; } = DurationTime;
-
-    public readonly bool IsExpired => RemainingTime <= TimeSpan.Zero;
-
-    public void Update(GameTime gameTime) => RemainingTime -= gameTime.ElapsedGameTime;
-
-    public void Reset() => RemainingTime = DurationTime;
 }

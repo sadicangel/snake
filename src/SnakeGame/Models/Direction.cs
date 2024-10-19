@@ -1,7 +1,7 @@
 ﻿using System.Diagnostics;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
-using SnakeGame.Services;
+using MonoGame.Extended.Input;
 
 namespace SnakeGame.Models;
 
@@ -25,12 +25,21 @@ public static class DirectionExtensions
 
     public static Point GetNextPosition(this Point point, Direction direction) => point + direction.ToPoint();
 
-    public static bool IsDirectionPressed(this KeyboardManager keyboardManager, Direction direction) => direction switch
+    public static bool IsDirectionDown(this KeyboardStateExtended keyboardManager, Direction direction) => direction switch
     {
-        Direction.Right => keyboardManager.IsAnyKeyDown(Keys.Right, Keys.D),
-        Direction.Down => keyboardManager.IsAnyKeyDown(Keys.Down, Keys.S),
-        Direction.Left => keyboardManager.IsAnyKeyDown(Keys.Left, Keys.A),
-        Direction.Up => keyboardManager.IsAnyKeyDown(Keys.Up, Keys.W),
+        Direction.Right => keyboardManager.IsKeyDown(Keys.Right) || keyboardManager.IsKeyDown(Keys.D),
+        Direction.Down => keyboardManager.IsKeyDown(Keys.Down) || keyboardManager.IsKeyDown(Keys.S),
+        Direction.Left => keyboardManager.IsKeyDown(Keys.Left) || keyboardManager.IsKeyDown(Keys.A),
+        Direction.Up => keyboardManager.IsKeyDown(Keys.Up) || keyboardManager.IsKeyDown(Keys.W),
+        _ => throw new UnreachableException($"Unexpected {nameof(Direction)} '{direction}'"),
+    };
+
+    public static bool WasDirectionPressed(this KeyboardStateExtended keyboardManager, Direction direction) => direction switch
+    {
+        Direction.Right => keyboardManager.WasKeyPressed(Keys.Right) || keyboardManager.WasKeyPressed(Keys.D),
+        Direction.Down => keyboardManager.WasKeyPressed(Keys.Down) || keyboardManager.WasKeyPressed(Keys.S),
+        Direction.Left => keyboardManager.WasKeyPressed(Keys.Left) || keyboardManager.WasKeyPressed(Keys.A),
+        Direction.Up => keyboardManager.WasKeyPressed(Keys.Up) || keyboardManager.WasKeyPressed(Keys.W),
         _ => throw new UnreachableException($"Unexpected {nameof(Direction)} '{direction}'"),
     };
 }

@@ -22,16 +22,21 @@ public class GameRoot : Game
             .AddSingleton(provider => provider.GetRequiredService<IGraphicsDeviceService>().GraphicsDevice)
             .AddSingleton(provider => new SpriteBatch(provider.GetRequiredService<GraphicsDevice>()))
             .AddSingleton(Content)
-            .AddSingleton<KeyboardManager>()
+            .AddSingleton<InputManager>()
             .AddSingleton<SceneManager>()
+            .AddSingleton<GameOptions>()
+            .AddTransient<MenuScene>()
             .AddTransient<GameScene>()
             .BuildServiceProvider();
     }
 
     protected override void Initialize()
     {
+        Components.Add(_services.GetRequiredService<InputManager>());
         Components.Add(_services.GetRequiredService<SceneManager>());
 
         base.Initialize();
     }
+
+    public T GetRequiredService<T>() where T : notnull => _services.GetRequiredService<T>();
 }
